@@ -81,7 +81,14 @@ export function themesDir(): string {
   return path.join(dataDir(), 'themes')
 }
 
+export function bundledMihomoCoreDir(): string {
+  return path.join(resourcesDir(), 'sidecar')
+}
+
 export function mihomoCoreDir(): string {
+  if (process.platform === 'darwin') {
+    return path.join(dataDir(), 'sidecar')
+  }
   return path.join(resourcesDir(), 'sidecar')
 }
 

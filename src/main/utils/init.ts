@@ -1,4 +1,4 @@
-import { mkdir, rm, readdir, cp, stat, rename } from 'fs/promises'
+import { mkdir, rm, readdir, cp, stat, rename, chmod } from 'fs/promises'
 import { existsSync } from 'fs'
 import { exec, execFile } from 'child_process'
 import { promisify } from 'util'
@@ -35,9 +35,11 @@ import {
 } from './template'
 import {
   appConfigPath,
+  bundledMihomoCoreDir,
   controledMihomoConfigPath,
   dataDir,
   logDir,
+  mihomoCoreDir,
   mihomoTestDir,
   mihomoWorkDir,
   overrideConfigPath,
@@ -120,6 +122,7 @@ async function initDirs(): Promise<void> {
     overrideDir(),
     rulesDir(),
     mihomoWorkDir(),
+    mihomoCoreDir(),
     logDir(),
     mihomoTestDir(),
     subStoreDir()
@@ -196,8 +199,45 @@ async function killOldMihomoProcesses(): Promise<void> {
   }
 }
 
+async function copyBundledCores(): Promise<void> {
+  if (process.platform !== 'darwin') return
+
+  const bundledDir = bundledMihomoCoreDir()
+  if (!existsSync(bundledDir)) return
+
+  const coreDir = mihomoCoreDir()
+  await mkdir(coreDir, { recursive: true })
+
+  const coreNames = ['mihomo', 'mihomo-alpha', 'mihomo-smart']
+
+  await Promise.all(
+    coreNames.map(async (name) => {
+      const sourcePath = path.join(bundledDir, name)
+      if (!existsSync(sourcePath)) return
+
+      const targetPath = path.join(coreDir, name)
+      const shouldCopy = !existsSync(targetPath) || (await isSourceNewer(sourcePath, targetPath))
+      if (!shouldCopy) return
+
+      try {
+        await cp(sourcePath, targetPath, { recursive: true, force: true })
+        await chmod(targetPath, 0o755)
+        await initLogger.info(`Copied bundled core ${name} to ${coreDir}`)
+      } catch (error) {
+        const code = (error as NodeJS.ErrnoException).code
+        if ((code === 'EPERM' || code === 'EBUSY' || code === 'EACCES') && existsSync(targetPath)) {
+          await initLogger.warn(`Skipping core ${name}: file in use or permission denied`)
+          return
+        }
+        throw error
+      }
+    })
+  )
+}
+
 async function initFiles(): Promise<void> {
   await killOldMihomoProcesses()
+  await copyBundledCores()
 
   const copyFile = async (file: string, targetDirs: string[]): Promise<void> => {
     const sourcePath = path.join(resourcesFilesDir(), file)
